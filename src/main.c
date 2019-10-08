@@ -10,6 +10,7 @@
 #include "libs/bitmap.h"
 #include "libs/utilities.h"
 #include "main.h"
+#include <time.h>
 
 // colourGradientSteps is defined in main.h
 // first step MUST be 0.0
@@ -30,19 +31,19 @@ static unsigned int colourMapSize = 0;
 
 static unsigned int res = 2048;
 static unsigned int maxDwell = 512;
+static const double logTwo = 0.693147180559945309417232121458176568075500134360255254120;
 
 
 pixel getDwellColour(unsigned int const y, unsigned int const x, unsigned long long const dwell) {
-	static const double log2 = 0.693147180559945309417232121458176568075500134360255254120;
-	double complex z = x + y * I;
-	unsigned long long index = dwell + 1 - log(log(cabs(z)/log2));
+	unsigned long long index = dwell + 1 - log(log((x * x + y * y)/logTwo)) + logTwo;
 	return colourMap[index % colourMapSize];
 }
 
 
 double complex getInitialValue(double complex const cmin, double complex const cmax, unsigned int const y, unsigned int const x) {
-	double real = ((double) x / res) * creal(cmax - cmin) + creal(cmin);
-	double imag = ((double) y / res) * cimag(cmax - cmin) + cimag(cmin);
+    double complex cdiff = cmax - cmin;
+	double real = ((double) x / res) * creal(cdiff) + creal(cmin);
+	double imag = ((double) y / res) * cimag(cdiff) + cimag(cmin);
 	double complex ret = real + imag * I;
 	return ret;
 }
@@ -51,8 +52,8 @@ double complex computeNextValue(double complex const z, double complex const ini
 	return (z * z) + init;
 }
 
-bool isPartOfMandelbrot(double complex const z, double const factor) {
-	return cabs(z) < (factor * factor);
+bool isPartOfMandelbrot(double complex const z, double const value) {
+	return creal(z) * creal(z) + cimag(z) * cimag(z) < value;
 }
 
 unsigned long long pixelDwell(double complex const cmin,
@@ -60,31 +61,33 @@ unsigned long long pixelDwell(double complex const cmin,
 						unsigned int const y,
 						unsigned int const x)
 {
-	double complex z = getInitialValue(cmin, cmax, y, x);
+    double complex z0 = getInitialValue(cmin, cmax, y, x);
+    double complex z = z0;
 	unsigned int const dwellInc = 1;
 	unsigned long long dwell = 0;
 
 	// Exit condition: dwell is maxDwell or |z| >= 4
-	while(dwell < maxDwell && isPartOfMandelbrot(z, 2.0)) {
+	while(dwell < maxDwell && isPartOfMandelbrot(z, 16.0)) {
 		// z = z² + initValue
-		z = computeNextValue(z, getInitialValue(cmin, cmax, y, x));
+		z = computeNextValue(z, z0);
 		dwell += dwellInc;
 	}
-
 	return dwell;
 }
 
 void computeDwellBuffer(unsigned long long **buffer, double complex cmin, double complex cmax) {
-	for (unsigned int x = 0; x < res; x++) {
-		for (unsigned int y = 0; y < res; y++) {
+    for (unsigned int y = 0; y < res; y++) {
+	    for (unsigned int x = 0; x < res; x++) {
 			buffer[y][x] = pixelDwell(cmin, cmax, y, x);
 		}
 	}
 }
 
 void mapDwellBuffer(bmpImage *image, unsigned long long **buffer) {
-	for (unsigned int x = 0; x < res; x++) {
-		for (unsigned int y = 0; y < res; y++) {
+//    struct timespec start, finish;
+//    clock_gettime(CLOCK_REALTIME, &start);
+    for (unsigned int y = 0; y < res; y++) {
+        for (unsigned int x = 0; x < res; x++) {
 			pixel *colour = malloc(sizeof(pixel));
 			*colour = getDwellColour(y, x, buffer[y][x]);
 			image->data[y][x].r = colour->r;
@@ -93,6 +96,9 @@ void mapDwellBuffer(bmpImage *image, unsigned long long **buffer) {
 			free(colour);
 		}
 	}
+//    clock_gettime(CLOCK_REALTIME, &finish);
+//    long double diff_ns = finish.tv_sec - start.tv_sec + (long double)(finish.tv_nsec - start.tv_nsec) /1000000000;
+//    printf("DELTA TIME: %Lf s\n", diff_ns);
 }
 
 void help(char const *exec, char const opt, char const *optarg) {
